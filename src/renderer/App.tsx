@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
-import { message } from 'antd';
-import { PlusOutlined, BarsOutlined, PieChartOutlined } from '@ant-design/icons';
+import { message, Popconfirm } from 'antd';
+import { PlusOutlined, UnorderedListOutlined, PieChartOutlined, DeleteOutlined } from '@ant-design/icons';
 import { getAllCategories, addRecord, getRecords, getMonthlyStats, getMonthlyTotal, deleteRecord } from './utils/database';
 import type { Category, RecordItem, MonthlyStat } from './types';
 import StatPage from './pages/StatPage';
@@ -21,6 +21,7 @@ const App: React.FC = () => {
 
   const currentMonth = dayjs().format('YYYY-MM');
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
+  const todayStr = dayjs().format('YYYY-MM-DD');
 
   const loadCategories = useCallback(async () => {
     const cats = await getAllCategories();
@@ -28,7 +29,7 @@ const App: React.FC = () => {
   }, []);
 
   const loadRecords = useCallback(async () => {
-    const data = await getRecords(100, 0);
+    const data = await getRecords(200, 0);
     setRecords(data);
   }, []);
 
@@ -60,10 +61,11 @@ const App: React.FC = () => {
   const handleAddRecord = async (amount: number, categoryId: number, note: string) => {
     try {
       const id = uuidv4();
-      const today = dayjs().format('YYYY-MM-DD');
+      const today = todayStr;
       await addRecord(id, amount, categoryId, note, today);
-      message.success('记录成功！');
+      message.success('🎉 记账成功！');
       setShowAddModal(false);
+      setActiveTab('records');
       await loadRecords();
       await loadStats(selectedMonth);
     } catch (err) {
@@ -75,7 +77,7 @@ const App: React.FC = () => {
   const handleDeleteRecord = async (id: string) => {
     try {
       await deleteRecord(id);
-      message.success('已删除');
+      message.success('已删除记录');
       await loadRecords();
       await loadStats(selectedMonth);
     } catch (err) {
@@ -89,13 +91,40 @@ const App: React.FC = () => {
     await loadStats(ym);
   };
 
-  const groupedRecords: Record<string, RecordItem[]> = {};
-  records.forEach((r) => {
-    if (!groupedRecords[r.recordDate]) {
-      groupedRecords[r.recordDate] = [];
-    }
-    groupedRecords[r.recordDate].push(r);
-  });
+  const todayRecords = useMemo(() => {
+    return records.filter(r => r.recordDate === todayStr);
+  }, [records, todayStr]);
+
+  const todayTotal = useMemo(() => {
+    return todayRecords.reduce((s, r) => s + r.amount, 0);
+  }, [todayRecords]);
+
+  const currentMonthRecords = useMemo(() => {
+    return records.filter(r => r.recordDate.startsWith(selectedMonth));
+  }, [records, selectedMonth]);
+
+  const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+  const greeting = useMemo(() => {
+    const h = dayjs().hour();
+    if (h < 6) return '夜深了';
+    if (h < 9) return '早上好';
+    if (h < 12) return '上午好';
+    if (h < 14) return '中午好';
+    if (h < 18) return '下午好';
+    if (h < 22) return '晚上好';
+    return '夜深了';
+  }, []);
+
+  const groupedRecords: Record<string, RecordItem[]> = useMemo(() => {
+    const g: Record<string, RecordItem[]> = {};
+    records.forEach((r) => {
+      if (!g[r.recordDate]) {
+        g[r.recordDate] = [];
+      }
+      g[r.recordDate].push(r);
+    });
+    return g;
+  }, [records]);
 
   if (loading) {
     return (
@@ -107,9 +136,13 @@ const App: React.FC = () => {
             alignItems: 'center',
             justifyContent: 'center',
             color: '#999',
+            fontSize: 16,
           }}
         >
-          加载中...
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>💰</div>
+            <div>黑马记账加载中...</div>
+          </div>
         </div>
       </div>
     );
@@ -120,24 +153,50 @@ const App: React.FC = () => {
       <div className="content-area">
         {activeTab === 'records' && (
           <div>
-            {records.length === 0 ? (
-              <div className="empty-state">
-                <div className="big-icon">📝</div>
-                <p>还没有记账记录</p>
-                <p style={{ fontSize: 13, marginTop: 8 }}>
-                  点击下方 "+" 按钮开始记账
-                </p>
+            <div className="page-header">
+              <div className="header-title">
+                👋 {greeting}，欢迎使用黑马记账
               </div>
-            ) : (
-              Object.entries(groupedRecords).map(([date, items]) => (
-                <div className="date-group" key={date}>
-                  <div className="date-header">
-                    {dayjs(date).format('M月D日 ddd')}
-                    <span style={{ marginLeft: 8, color: '#999', fontSize: 12 }}>
-                      共 {items.reduce((s, i) => s + i.amount, 0).toFixed(2)} 元
-                    </span>
+              <div className="header-subtitle">
+                今天是 {dayjs().format('M月D日')} 星期{weekDays[dayjs().day()]}
+              </div>
+              <div className="header-stats">
+                <div className="header-stat-card">
+                  <div className="stat-label">今日支出</div>
+                  <div className="stat-value">
+                    {todayTotal.toFixed(0)}
+                    <span className="stat-unit">元</span>
                   </div>
-                  {items.map((item) => (
+                </div>
+                <div className="header-stat-card">
+                  <div className="stat-label">本月支出</div>
+                  <div className="stat-value">
+                    {monthlyTotal.toFixed(0)}
+                    <span className="stat-unit">元</span>
+                  </div>
+                </div>
+                <div className="header-stat-card">
+                  <div className="stat-label">记账笔数</div>
+                  <div className="stat-value">
+                    {currentMonthRecords.length}
+                    <span className="stat-unit">笔</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="page-content">
+              {todayRecords.length > 0 && (
+                <div className="section-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: '#1f1f1f' }}>
+                      📍 今日账单
+                    </div>
+                    <div style={{ fontSize: 12, color: '#999' }}>
+                      {todayRecords.length} 笔
+                    </div>
+                  </div>
+                  {todayRecords.map((item) => (
                     <div className="record-card" key={item.id}>
                       <div className="left">
                         <div className="icon-circle">{item.icon || '📦'}</div>
@@ -149,23 +208,94 @@ const App: React.FC = () => {
                           </div>
                         </div>
                       </div>
-                      <div
-                        className="amount"
-                        style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-                      >
+                      <div className="amount">
                         -¥{item.amount.toFixed(2)}
-                        <span
-                          style={{ fontSize: 12, color: '#999', cursor: 'pointer' }}
-                          onClick={() => handleDeleteRecord(item.id)}
+                        <Popconfirm
+                          title="确认删除这条记录？"
+                          okText="删除"
+                          cancelText="取消"
+                          okType="danger"
+                          onConfirm={() => handleDeleteRecord(item.id)}
                         >
-                          ✕
-                        </span>
+                          <span className="delete-btn">
+                            <DeleteOutlined style={{ fontSize: 11 }} />
+                          </span>
+                        </Popconfirm>
                       </div>
                     </div>
                   ))}
                 </div>
-              ))
-            )}
+              )}
+
+              {records.length === 0 ? (
+                <div className="empty-state">
+                  <div className="big-icon">📝</div>
+                  <div className="empty-title">还没有记账记录</div>
+                  <div className="empty-desc">
+                    点击中间的 ＋ 按钮开始记录你的第一笔支出吧～<br />
+                    养成记账好习惯，理财更轻松！
+                  </div>
+                  <button
+                    className="empty-action-btn"
+                    onClick={() => setShowAddModal(true)}
+                  >
+                    💰 立即记账
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <div className="records-toolbar">
+                    <span className="toolbar-title">📋 全部账单</span>
+                    <span className="toolbar-count">
+                      共 {records.length} 条记录
+                    </span>
+                  </div>
+                  {Object.entries(groupedRecords).map(([date, items]) => (
+                    <div className="date-group" key={date}>
+                      <div className="date-header">
+                        <div className="date-left">
+                          <span className="date-dot" />
+                          <span>
+                            {dayjs(date).format('M月D日')} 星期{weekDays[dayjs(date).day()]}
+                          </span>
+                        </div>
+                        <span className="date-sum">
+                          合计 ¥{items.reduce((s, i) => s + i.amount, 0).toFixed(2)}
+                        </span>
+                      </div>
+                      {items.map((item) => (
+                        <div className="record-card" key={item.id}>
+                          <div className="left">
+                            <div className="icon-circle">{item.icon || '📦'}</div>
+                            <div className="info">
+                              <div className="main">{item.subCategory}</div>
+                              <div className="sub">
+                                {item.mainCategory}
+                                {item.note ? ` · ${item.note}` : ''}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="amount">
+                            -¥{item.amount.toFixed(2)}
+                            <Popconfirm
+                              title="确认删除这条记录？"
+                              okText="删除"
+                              cancelText="取消"
+                              okType="danger"
+                              onConfirm={() => handleDeleteRecord(item.id)}
+                            >
+                              <span className="delete-btn">
+                                <DeleteOutlined style={{ fontSize: 11 }} />
+                              </span>
+                            </Popconfirm>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -175,6 +305,7 @@ const App: React.FC = () => {
             monthlyTotal={monthlyTotal}
             selectedMonth={selectedMonth}
             onMonthChange={handleMonthChange}
+            recordsCount={currentMonthRecords.length}
           />
         )}
 
@@ -186,14 +317,16 @@ const App: React.FC = () => {
           className={`nav-item ${activeTab === 'records' ? 'active' : ''}`}
           onClick={() => setActiveTab('records')}
         >
-          <BarsOutlined className="nav-icon" />
-          <span>记录</span>
+          <UnorderedListOutlined className="nav-icon" />
+          <span>账单</span>
         </button>
         <button
-          className={`nav-item ${activeTab === 'add' ? 'active' : ''}`}
+          className="nav-item add-btn"
           onClick={() => setShowAddModal(true)}
         >
-          <PlusOutlined className="nav-icon" style={{ fontSize: 22 }} />
+          <div className="nav-icon-wrap">
+            <PlusOutlined className="nav-icon" />
+          </div>
           <span>记账</span>
         </button>
         <button

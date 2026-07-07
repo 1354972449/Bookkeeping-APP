@@ -8,6 +8,8 @@ interface Props {
   onCancel: () => void;
 }
 
+const QUICK_AMOUNTS = [10, 20, 50, 100, 200, 500];
+
 const AddRecordModal: React.FC<Props> = ({ categories, onSave, onCancel }) => {
   const [amount, setAmount] = useState('');
   const [selectedMainCat, setSelectedMainCat] = useState<number | null>(null);
@@ -28,9 +30,21 @@ const AddRecordModal: React.FC<Props> = ({ categories, onSave, onCancel }) => {
     setStep('category');
   };
 
+  const handleMainCatSelect = (catId: number) => {
+    setSelectedMainCat(catId);
+    const cat = categories.find(c => c.id === catId);
+    if (cat && cat.children && cat.children.length > 0) {
+      setSelectedSubCat(cat.children[0].id);
+    }
+  };
+
   const handleCategorySelect = () => {
-    if (!selectedSubCat) {
+    if (!selectedMainCat) {
       message.warning('请选择分类');
+      return;
+    }
+    if (!selectedSubCat) {
+      message.warning('请选择具体的子分类');
       return;
     }
     onSave(parseFloat(amount), selectedSubCat, note);
@@ -42,43 +56,86 @@ const AddRecordModal: React.FC<Props> = ({ categories, onSave, onCancel }) => {
     setSelectedSubCat(null);
   };
 
+  const currentMainCat = categories.find(c => c.id === selectedMainCat);
+
   return (
     <Modal
       open
       onCancel={onCancel}
       footer={null}
-      width={420}
+      width={460}
       centered
-      closable={false}
+      closable
       destroyOnClose
+      title={
+        <div style={{ textAlign: 'center', fontSize: 18, fontWeight: 600 }}>
+          {step === 'amount' ? '💰 记一笔支出' : '📂 选择分类'}
+        </div>
+      }
     >
       {step === 'amount' ? (
-        <div style={{ textAlign: 'center', padding: '20px 0' }}>
-          <h3 style={{ marginBottom: 24 }}>输入金额</h3>
-          <Input
-            className="amount-input"
-            placeholder="0.00"
-            prefix={<span style={{ fontSize: 20 }}>¥</span>}
-            value={amount}
-            onChange={(e) => {
-              const val = e.target.value.replace(/[^\d.]/g, '');
-              const parts = val.split('.');
-              if (parts.length > 2) return;
-              if (parts[1]?.length > 2) return;
-              setAmount(val);
-            }}
-            autoFocus
-            onPressEnter={handleAmountConfirm}
-            variant="borderless"
-          />
-          <div style={{ marginTop: 32, display: 'flex', gap: 12, justifyContent: 'center' }}>
+        <div style={{ padding: '16px 0' }}>
+          <div style={{ textAlign: 'center', marginBottom: 24 }}>
+            <div style={{ fontSize: 14, color: '#999', marginBottom: 8 }}>支出金额</div>
+            <Input
+              className="amount-input"
+              placeholder="0.00"
+              prefix={<span style={{ fontSize: 24, color: '#333' }}>¥</span>}
+              value={amount}
+              onChange={(e) => {
+                const val = e.target.value.replace(/[^\d.]/g, '');
+                const parts = val.split('.');
+                if (parts.length > 2) return;
+                if (parts[1]?.length > 2) return;
+                setAmount(val);
+              }}
+              autoFocus
+              onPressEnter={handleAmountConfirm}
+              variant="borderless"
+            />
+          </div>
+
+          <div style={{ marginBottom: 28 }}>
+            <div style={{ fontSize: 13, color: '#999', marginBottom: 12 }}>快捷金额</div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {QUICK_AMOUNTS.map((q) => (
+                <div
+                  key={q}
+                  onClick={() => setAmount(String(q))}
+                  style={{
+                    flex: 1,
+                    minWidth: 80,
+                    padding: '10px 0',
+                    textAlign: 'center',
+                    borderRadius: 10,
+                    background: amount === String(q) ? '#e6f4ff' : '#f7f8fa',
+                    border: `1px solid ${amount === String(q) ? '#1677ff' : '#eef0f3'}`,
+                    color: amount === String(q) ? '#1677ff' : '#333',
+                    cursor: 'pointer',
+                    fontSize: 14,
+                    fontWeight: 500,
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  ¥{q}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 12 }}>
             <div
               onClick={onCancel}
               style={{
-                padding: '10px 32px',
-                borderRadius: 24,
+                flex: 1,
+                padding: '12px 0',
+                borderRadius: 28,
                 border: '1px solid #d9d9d9',
                 cursor: 'pointer',
+                textAlign: 'center',
+                fontSize: 15,
+                color: '#666',
+                transition: 'all 0.2s',
               }}
             >
               取消
@@ -86,99 +143,133 @@ const AddRecordModal: React.FC<Props> = ({ categories, onSave, onCancel }) => {
             <div
               onClick={handleAmountConfirm}
               style={{
-                padding: '10px 32px',
-                borderRadius: 24,
-                background: '#1677ff',
+                flex: 2,
+                padding: '12px 0',
+                borderRadius: 28,
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                 color: '#fff',
                 cursor: 'pointer',
+                textAlign: 'center',
+                fontSize: 15,
+                fontWeight: 600,
+                boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
+                transition: 'all 0.2s',
               }}
             >
-              下一步
+              下一步 →
             </div>
           </div>
         </div>
       ) : (
-        <div style={{ padding: '12px 0' }}>
-          <div style={{ textAlign: 'center', marginBottom: 12 }}>
-            <span style={{ fontSize: 28, fontWeight: 700 }}>¥{parseFloat(amount).toFixed(2)}</span>
+        <div style={{ padding: '8px 0' }}>
+          <div
+            style={{
+              textAlign: 'center',
+              marginBottom: 20,
+              padding: '16px',
+              borderRadius: 12,
+              background: 'linear-gradient(135deg, #fff5f5 0%, #ffe8e8 100%)',
+            }}
+          >
+            <div style={{ fontSize: 13, color: '#999', marginBottom: 4 }}>记账金额</div>
+            <span style={{ fontSize: 32, fontWeight: 700, color: '#ff4d4f' }}>
+              ¥{parseFloat(amount).toFixed(2)}
+            </span>
           </div>
 
-          {!selectedMainCat ? (
-            <>
-              <h4 style={{ marginBottom: 12 }}>选择分类</h4>
-              <div className="category-grid">
-                {categories.map((cat) => (
-                  <div
-                    key={cat.id}
-                    className="category-item"
-                    onClick={() => setSelectedMainCat(cat.id)}
-                  >
-                    <span className="cat-icon">{cat.icon || '📦'}</span>
-                    <span className="cat-name">{cat.name}</span>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>
+                {selectedMainCat ? currentMainCat?.name : '选择大类'}
+              </h4>
+              {selectedMainCat && (
                 <span
                   onClick={() => { setSelectedMainCat(null); setSelectedSubCat(null); }}
-                  style={{ cursor: 'pointer', fontSize: 12, color: '#1677ff' }}
+                  style={{ cursor: 'pointer', fontSize: 13, color: '#1677ff' }}
                 >
-                  ← 返回
+                  ← 更换分类
                 </span>
-                <h4>{categories.find(c => c.id === selectedMainCat)?.name}</h4>
+              )}
+            </div>
+            <div className="category-grid">
+              {categories.map((cat) => (
+                <div
+                  key={cat.id}
+                  className={`category-item ${selectedMainCat === cat.id ? 'selected' : ''}`}
+                  onClick={() => handleMainCatSelect(cat.id)}
+                >
+                  <span className="cat-icon">{cat.icon || '📦'}</span>
+                  <span className="cat-name">{cat.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {selectedMainCat && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 13, color: '#999', marginBottom: 10 }}>
+                选择具体分类（当前：<span style={{ color: '#1677ff' }}>
+                  {currentMainCat?.children.find(c => c.id === selectedSubCat)?.name || '未选择'}
+                </span>）
               </div>
               <div className="sub-tags">
-                {categories
-                  .find(c => c.id === selectedMainCat)
-                  ?.children.map((sub) => (
-                    <span
-                      key={sub.id}
-                      className={`sub-tag ${selectedSubCat === sub.id ? 'selected' : ''}`}
-                      onClick={() => setSelectedSubCat(sub.id)}
-                    >
-                      {sub.name}
-                    </span>
-                  ))}
+                {currentMainCat?.children.map((sub) => (
+                  <span
+                    key={sub.id}
+                    className={`sub-tag ${selectedSubCat === sub.id ? 'selected' : ''}`}
+                    onClick={() => setSelectedSubCat(sub.id)}
+                  >
+                    {sub.name}
+                  </span>
+                ))}
               </div>
-            </>
+            </div>
           )}
 
           <Input
-            placeholder="添加备注（可选）"
+            placeholder="📝 添加备注（选填，如：和朋友聚餐）"
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            style={{ marginTop: 16 }}
+            style={{ marginTop: 12 }}
             variant="filled"
+            size="large"
           />
 
-          <div style={{ marginTop: 16, display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+          <div style={{ marginTop: 20, display: 'flex', gap: 12 }}>
             <div
               onClick={handleReset}
               style={{
-                padding: '8px 24px',
-                borderRadius: 24,
+                flex: 1,
+                padding: '11px 0',
+                borderRadius: 28,
                 border: '1px solid #d9d9d9',
                 cursor: 'pointer',
-                fontSize: 13,
+                textAlign: 'center',
+                fontSize: 14,
+                color: '#666',
               }}
             >
-              修改金额
+              ← 修改金额
             </div>
             <div
               onClick={handleCategorySelect}
               style={{
-                padding: '8px 24px',
-                borderRadius: 24,
-                background: '#1677ff',
+                flex: 2,
+                padding: '11px 0',
+                borderRadius: 28,
+                background: selectedSubCat
+                  ? 'linear-gradient(135deg, #52c41a 0%, #389e0d 100%)'
+                  : 'linear-gradient(135deg, #bfbfbf 0%, #8c8c8c 100%)',
                 color: '#fff',
                 cursor: 'pointer',
-                fontSize: 13,
+                textAlign: 'center',
+                fontSize: 15,
+                fontWeight: 600,
+                boxShadow: selectedSubCat ? '0 4px 12px rgba(82, 196, 26, 0.4)' : 'none',
+                transition: 'all 0.2s',
               }}
             >
-              保存
+              ✓ 确认记账
             </div>
           </div>
         </div>
