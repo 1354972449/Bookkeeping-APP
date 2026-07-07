@@ -1,0 +1,88 @@
+{
+  "name": "hei-ma-zhang-ji",
+  "version": "1.0.0",
+  "description": "黑马记账 - 跨平台个人消费记账应用",
+  "main": "src/main/main.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:react\" \"npm run dev:electron\"",
+    "dev:react": "cross-env NODE_ENV=development webpack serve --config webpack.config.js",
+    "dev:electron": "wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .",
+    "build": "webpack --config webpack.config.js --mode production && electron-builder",
+    "build:win": "webpack --config webpack.config.js --mode production && electron-builder --win",
+    "build:mac": "webpack --config webpack.config.js --mode production && electron-builder --mac",
+    "react:build": "webpack --config webpack.config.js --mode production"
+  },
+  "build": {
+    "appId": "com.heima.zhangji",
+    "productName": "黑马记账",
+    "directories": {
+      "output": "release"
+    },
+    "asar": true,
+    "asarUnpack": [
+      "dist/sql-wasm.wasm"
+    ],
+    "files": [
+      "dist/**/*",
+      "src/main/**/*",
+      "public/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "dist/sql-wasm.wasm",
+        "to": "dist/sql-wasm.wasm"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/icon.png"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "public/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "language": "2052",
+      "shortcutName": "黑马记账",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "dependencies": {
+    "@ant-design/icons": "^6.3.2",
+    "antd": "^6.5.0",
+    "dayjs": "^1.11.21",
+    "echarts": "^6.1.0",
+    "echarts-for-react": "^3.0.6",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "sql.js": "^1.14.1",
+    "uuid": "^14.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "concurrently": "^10.0.3",
+    "copy-webpack-plugin": "^14.0.0",
+    "cross-env": "^10.1.0",
+    "css-loader": "^7.1.4",
+    "electron": "^43.0.0",
+    "electron-builder": "^26.15.3",
+    "html-webpack-plugin": "^5.6.7",
+    "style-loader": "^4.0.0",
+    "ts-loader": "^9.6.2",
+    "typescript": "^6.0.3",
+    "wait-on": "^9.0.10",
+    "webpack": "^5.108.4",
+    "webpack-cli": "^7.2.1",
+    "webpack-dev-server": "^6.0.0"
+  }
+}
