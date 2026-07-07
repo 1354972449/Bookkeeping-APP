@@ -23,6 +23,15 @@ const CATEGORIES = [
   { name: '其他支出', icon: '📦', children: ['丢失赔偿', '公益捐赠', '杂项支出', '无法归类'] },
 ];
 
+const BACKUP_CATEGORIES_RESULT = (() => {
+  let _id = 1;
+  return CATEGORIES.map(main => {
+    const mid = _id++;
+    const children = main.children.map(n => ({ id: _id++, name: n }));
+    return { id: mid, name: main.name, icon: main.icon, children };
+  });
+})();
+
 function resolveWasmPath() {
   const isDev = process.env.NODE_ENV === 'development';
 
@@ -55,15 +64,50 @@ async function initDatabase(userDataPath) {
     fs.mkdirSync(DB_DIR, { recursive: true });
   }
 
-  if (fs.existsSync(DB_PATH)) {
-    const buffer = fs.readFileSync(DB_PATH);
-    db = new SQL.Database(buffer);
-  } else {
+  try {
+    if (fs.existsSync(DB_PATH)) {
+      const buffer = fs.readFileSync(DB_PATH);
+      try {
+        db = new SQL.Database(buffer);
+      } catch (openErr) {
+        console.error('打开现有数据库失败，将重建:', openErr.message);
+        const bakPath = DB_PATH + '.bak-' + Date.now();
+        try { fs.copyFileSync(DB_PATH, bakPath); } catch (_) { /* noop */ }
+        db = new SQL.Database();
+      }
+    } else {
+      db = new SQL.Database();
+    }
+  } catch (outerErr) {
+    console.error('数据库初始化异常，使用纯内存模式:', outerErr.message);
     db = new SQL.Database();
   }
 
-  createTables();
-  initCategories();
+  try {
+    createTables();
+  } catch (e) {
+    console.error('建表失败，强制重建表结构:', e.message);
+    try {
+      db.run('DROP TABLE IF EXISTS records');
+      db.run('DROP TABLE IF EXISTS categories');
+      createTables();
+    } catch (e2) {
+      console.error('重建表结构仍失败:', e2.message);
+    }
+  }
+
+  try {
+    initCategories();
+  } catch (e) {
+    console.error('分类初始化失败，尝试强制重建:', e.message);
+    try {
+      db.run('DROP TABLE IF EXISTS categories');
+      createTables();
+      initCategories();
+    } catch (e2) {
+      console.error('强制重建分类仍失败:', e2.message);
+    }
+  }
 }
 
 function createTables() {
@@ -135,7 +179,9 @@ function doInsertCategories() {
 
   CATEGORIES.forEach((cat, index) => {
     stmt.run([cat.name, cat.icon, null, 1, index]);
-    const parentId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
+    const parentRes = db.exec('SELECT last_insert_rowid() AS lid');
+    const parentId = parentRes?.[0]?.values?.[0]?.[0];
+    if (!parentId) return;
 
     cat.children.forEach((childName, childIndex) => {
       stmt.run([childName, null, parentId, 2, childIndex]);
@@ -143,102 +189,211 @@ function doInsertCategories() {
   });
 
   stmt.free();
+  saveDatabase();
 }
 
 function initCategories() {
-  const result = db.exec('SELECT COUNT(*) as cnt FROM categories');
-  const count = result[0]?.values[0][0] || 0;
-
-  if (count === 0) {
-    doInsertCategories();
-    saveDatabase();
-    return;
+  let count = 0;
+  try {
+    const result = db.exec('SELECT COUNT(*) as cnt FROM categories');
+    count = result?.[0]?.values?.[0]?.[0] || 0;
+  } catch (e) {
+    console.error('查询分类数量失败，强制重建:', e.message);
+    count = 0;
   }
 
-  if (!isCategoriesStructureValid()) {
-    console.log('分类结构不完整，重建分类表...');
-    const recResult = db.exec(`
-      SELECT r.amount, r.note, r.record_date, r.created_at,
-             c2.name as sub_name, c1.name as main_name
-      FROM records r
-      JOIN categories c2 ON r.category_id = c2.id
-      JOIN categories c1 ON c2.parent_id = c1.id
-    `);
-    const oldRecords = recResult[0]?.values || [];
+  if (count === 0) {
+    try {
+      doInsertCategories();
+      return;
+    } catch (e) {
+      console.error('首次插入分类失败:', e.message);
+      return;
+    }
+  }
 
-    db.run('DROP TABLE IF EXISTS records');
-    db.run('DROP TABLE IF EXISTS categories');
-    createTables();
-    doInsertCategories();
+  let needRebuild = false;
+  try {
+    needRebuild = !isCategoriesStructureValid();
+  } catch (e) {
+    console.error('分类结构校验异常，将重建:', e.message);
+    needRebuild = true;
+  }
+
+  if (needRebuild) {
+    console.log('分类结构不完整，重建分类表（保留原有记录）...');
+    let oldRecords = [];
+    try {
+      const recResult = db.exec(`
+        SELECT r.amount, r.note, r.record_date, r.created_at,
+               c2.name as sub_name, c1.name as main_name
+        FROM records r
+        JOIN categories c2 ON r.category_id = c2.id
+        JOIN categories c1 ON c2.parent_id = c1.id
+      `);
+      oldRecords = recResult?.[0]?.values || [];
+    } catch (e) {
+      console.warn('迁移旧记录时查询失败，放弃迁移:', e.message);
+      oldRecords = [];
+    }
+
+    try {
+      db.run('DROP TABLE IF EXISTS records');
+      db.run('DROP TABLE IF EXISTS categories');
+      createTables();
+      doInsertCategories();
+    } catch (e) {
+      console.error('重建分类表失败:', e.message);
+      return;
+    }
 
     if (oldRecords.length > 0) {
-      const v1 = db.exec('SELECT id, name, parent_id FROM categories ORDER BY id');
-      const allRows = v1[0]?.values || [];
-      const subMap = {};
-      for (const row of allRows) {
-        const [id, name, pid] = row;
-        if (pid !== null) {
-          subMap[name] = id;
+      try {
+        const v1 = db.exec('SELECT id, name, parent_id FROM categories ORDER BY id');
+        const allRows = v1?.[0]?.values || [];
+        const subMap = {};
+        for (const row of allRows) {
+          const [id, name, pid] = row;
+          if (pid !== null && pid !== undefined) {
+            subMap[name] = id;
+          }
         }
-      }
 
-      const insertStmt = db.prepare(
-        'INSERT INTO records (id, amount, category_id, note, record_date, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-      );
-      const { v4: uuidv4 } = require('uuid');
-      for (const rec of oldRecords) {
-        const [amount, note, record_date, created_at, subName] = rec;
-        const newSubId = subMap[subName];
-        if (newSubId) {
-          insertStmt.run([uuidv4(), amount, newSubId, note, record_date, created_at]);
+        const insertStmt = db.prepare(
+          'INSERT INTO records (id, amount, category_id, note, record_date, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        const { v4: uuidv4 } = require('uuid');
+        for (const rec of oldRecords) {
+          const [amount, note, record_date, created_at, subName] = rec;
+          const newSubId = subMap[subName];
+          if (newSubId) {
+            insertStmt.run([uuidv4(), amount, newSubId, note, record_date, created_at]);
+          }
         }
+        insertStmt.free();
+        saveDatabase();
+      } catch (e) {
+        console.error('恢复旧记录失败:', e.message);
       }
-      insertStmt.free();
     }
-    saveDatabase();
   }
 }
 
 function saveDatabase() {
-  if (db) {
+  if (!db || !DB_PATH) return;
+  try {
     const data = db.export();
     const buffer = Buffer.from(data);
     fs.writeFileSync(DB_PATH, buffer);
+  } catch (e) {
+    console.error('保存数据库失败（文件可能被占用）:', e.message);
+    try {
+      const tmpPath = DB_PATH + '.tmp-' + Date.now();
+      fs.writeFileSync(tmpPath, Buffer.from(db.export()));
+      try { fs.renameSync(tmpPath, DB_PATH); } catch (_) { /* noop */ }
+    } catch (e2) {
+      console.error('备用保存路径也失败:', e2.message);
+    }
   }
 }
 
 function getAllCategories() {
-  const result = db.exec(`
-    SELECT c1.id, c1.name, c1.icon, c1.level
-    FROM categories c1
-    WHERE c1.level = 1
-    ORDER BY c1.sort_order
-  `);
-
-  const categories = [];
-  for (const row of result[0]?.values || []) {
-    const parentId = row[0];
-    const childResult = db.exec(`
-      SELECT id, name FROM categories WHERE parent_id = ${parentId} ORDER BY sort_order
-    `);
-
-    const children = (childResult[0]?.values || []).map(r => ({
-      id: r[0],
-      name: r[1],
-    }));
-
-    categories.push({
-      id: parentId,
-      name: row[1],
-      icon: row[2],
-      children,
-    });
+  if (!db) {
+    console.warn('数据库未初始化，返回内置兜底分类');
+    return JSON.parse(JSON.stringify(BACKUP_CATEGORIES_RESULT));
   }
 
-  return categories;
+  try {
+    const result = db.exec(`
+      SELECT c1.id, c1.name, c1.icon, c1.level
+      FROM categories c1
+      WHERE c1.level = 1
+      ORDER BY c1.sort_order
+    `);
+
+    const mainRows = result?.[0]?.values || [];
+    if (mainRows.length === 0) {
+      console.warn('categories 表无大类数据，返回内置兜底分类，并尝试重写数据库');
+      try {
+        doInsertCategories();
+      } catch (_) { /* noop */ }
+      return JSON.parse(JSON.stringify(BACKUP_CATEGORIES_RESULT));
+    }
+
+    const categories = [];
+    let totalChildren = 0;
+    for (const row of mainRows) {
+      const parentId = row[0];
+      let childResult;
+      try {
+        childResult = db.exec(`
+          SELECT id, name FROM categories WHERE parent_id = ${parentId} ORDER BY sort_order
+        `);
+      } catch (e) {
+        childResult = null;
+      }
+      const childrenRows = childResult?.[0]?.values || [];
+      totalChildren += childrenRows.length;
+
+      const children = childrenRows.map(r => ({
+        id: r[0],
+        name: r[1],
+      }));
+
+      categories.push({
+        id: parentId,
+        name: row[1],
+        icon: row[2],
+        children,
+      });
+    }
+
+    if (totalChildren === 0) {
+      console.warn('所有大类都没有子分类，返回内置兜底分类');
+      try {
+        db.run('DROP TABLE IF EXISTS categories');
+        createTables();
+        doInsertCategories();
+      } catch (_) { /* noop */ }
+      return JSON.parse(JSON.stringify(BACKUP_CATEGORIES_RESULT));
+    }
+
+    return categories;
+  } catch (e) {
+    console.error('查询分类失败，返回内置兜底分类:', e.message);
+    return JSON.parse(JSON.stringify(BACKUP_CATEGORIES_RESULT));
+  }
 }
 
 function addRecord(id, amount, categoryId, note, recordDate) {
+  if (!db) throw new Error('数据库未初始化');
+
+  try {
+    const chk = db.exec('SELECT COUNT(*) FROM categories');
+    const cnt = chk?.[0]?.values?.[0]?.[0] || 0;
+    if (cnt === 0) {
+      console.warn('写记录前发现分类表为空，立即插入分类');
+      doInsertCategories();
+    } else {
+      const chkId = db.exec(`SELECT id FROM categories WHERE id = ${Number(categoryId)} LIMIT 1`);
+      const hasId = chkId?.[0]?.values?.length > 0;
+      if (!hasId) {
+        console.warn(`写记录时分类ID=${categoryId}不存在，尝试重建分类表`);
+        db.run('DROP TABLE IF EXISTS records');
+        db.run('DROP TABLE IF EXISTS categories');
+        createTables();
+        doInsertCategories();
+      }
+    }
+  } catch (e) {
+    console.error('写记录前分类校验异常，尝试兜底插入:', e.message);
+    try {
+      db.run('DROP TABLE IF EXISTS categories');
+      createTables();
+      doInsertCategories();
+    } catch (_) { /* noop */ }
+  }
+
   const stmt = db.prepare(
     'INSERT INTO records (id, amount, category_id, note, record_date) VALUES (?, ?, ?, ?, ?)'
   );
