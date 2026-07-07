@@ -2,13 +2,21 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import dayjs from 'dayjs';
 import { message, Popconfirm } from 'antd';
-import { PlusOutlined, UnorderedListOutlined, PieChartOutlined, DeleteOutlined } from '@ant-design/icons';
-import { getAllCategories, addRecord, getRecords, getMonthlyStats, getMonthlyTotal, deleteRecord } from './utils/database';
+import { PlusOutlined, UnorderedListOutlined, PieChartOutlined, DeleteOutlined, SmileOutlined } from '@ant-design/icons';
+import {
+  getAllCategories,
+  addRecord,
+  getRecords,
+  getMonthlyStats,
+  getMonthlyTotal,
+  deleteRecord,
+} from './utils/database';
 import type { Category, RecordItem, MonthlyStat } from './types';
 import StatPage from './pages/StatPage';
+import SnakeGame from './pages/SnakeGame';
 import AddRecordModal from './components/AddRecordModal';
 
-type TabType = 'records' | 'add' | 'stats';
+type TabType = 'records' | 'add' | 'stats' | 'game';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('records');
@@ -26,10 +34,11 @@ const App: React.FC = () => {
   const loadCategories = useCallback(async () => {
     const cats = await getAllCategories();
     setCategories(cats);
+    return cats;
   }, []);
 
   const loadRecords = useCallback(async () => {
-    const data = await getRecords(200, 0);
+    const data = await getRecords(500, 0);
     setRecords(data);
   }, []);
 
@@ -58,20 +67,23 @@ const App: React.FC = () => {
     })();
   }, []);
 
-  const handleAddRecord = async (amount: number, categoryId: number, note: string) => {
+  const handleAddRecord = async (amount: number, categoryId: number, note: string, recordDate: string) => {
     try {
       const id = uuidv4();
-      const today = todayStr;
-      await addRecord(id, amount, categoryId, note, today);
-      message.success('🎉 记账成功！');
+      await addRecord(id, amount, categoryId, note, recordDate);
+      message.success(`🎉 记账成功！（${recordDate}）`);
       setShowAddModal(false);
       setActiveTab('records');
       await loadRecords();
       await loadStats(selectedMonth);
     } catch (err) {
       console.error('添加记录失败:', err);
-      message.error('记录失败，请重试');
+      message.error(err instanceof Error ? err.message : '记录失败，请重试');
     }
+  };
+
+  const handleCategoryAdded = async () => {
+    await loadCategories();
   };
 
   const handleDeleteRecord = async (id: string) => {
@@ -233,6 +245,7 @@ const App: React.FC = () => {
                   <div className="empty-title">还没有记账记录</div>
                   <div className="empty-desc">
                     点击中间的 ＋ 按钮开始记录你的第一笔支出吧～<br />
+                    支持补记任意历史日期的账单，还能自定义分类哦！<br />
                     养成记账好习惯，理财更轻松！
                   </div>
                   <button
@@ -250,7 +263,7 @@ const App: React.FC = () => {
                       共 {records.length} 条记录
                     </span>
                   </div>
-                  {Object.entries(groupedRecords).map(([date, items]) => (
+                  {Object.entries(groupedRecords).sort((a, b) => (a[0] < b[0] ? 1 : -1)).map(([date, items]) => (
                     <div className="date-group" key={date}>
                       <div className="date-header">
                         <div className="date-left">
@@ -309,6 +322,8 @@ const App: React.FC = () => {
           />
         )}
 
+        {activeTab === 'game' && <SnakeGame />}
+
         {activeTab === 'add' && null}
       </div>
 
@@ -336,6 +351,13 @@ const App: React.FC = () => {
           <PieChartOutlined className="nav-icon" />
           <span>统计</span>
         </button>
+        <button
+          className={`nav-item ${activeTab === 'game' ? 'active' : ''}`}
+          onClick={() => setActiveTab('game')}
+        >
+          <SmileOutlined className="nav-icon" />
+          <span>放松</span>
+        </button>
       </div>
 
       {showAddModal && (
@@ -343,6 +365,7 @@ const App: React.FC = () => {
           categories={categories}
           onSave={handleAddRecord}
           onCancel={() => setShowAddModal(false)}
+          onCategoryAdded={handleCategoryAdded}
         />
       )}
     </div>

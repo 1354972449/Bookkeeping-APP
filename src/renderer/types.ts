@@ -26,3 +26,10 @@ export interface MonthlyStat {
   icon: string;
   total: number;
 }
+
+export interface TrendItem {
+  label: string;
+  total: number;
+}
+
+export type StatPeriod = 'year' | 'month' | 'day';

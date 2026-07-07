@@ -1,4 +1,4 @@
-import type { Category, RecordItem, MonthlyStat } from '../types';
+import type { Category, RecordItem, MonthlyStat, TrendItem } from '../types';
 
 const FALLBACK_CATEGORIES: Category[] = (() => {
   const MAINS = [
@@ -34,10 +34,16 @@ declare global {
   interface Window {
     electronAPI?: {
       getAllCategories: () => Promise<Category[]>;
+      addCategory: (name: string, icon?: string, parentId?: number) => Promise<{ id: number; level: number }>;
       addRecord: (id: string, amount: number, categoryId: number, note: string, recordDate: string) => Promise<void>;
       getRecords: (limit?: number, offset?: number) => Promise<RecordItem[]>;
       getMonthlyStats: (year: number, month: number) => Promise<MonthlyStat[]>;
+      getYearlyStats: (year: number) => Promise<MonthlyStat[]>;
+      getDailyStats: (dateStr: string) => Promise<MonthlyStat[]>;
+      getTrendByPeriod: (periodType: 'year' | 'month' | 'day', value: string | number) => Promise<TrendItem[]>;
       getMonthlyTotal: (year: number, month: number) => Promise<number>;
+      getYearlyTotal: (year: number) => Promise<number>;
+      getDailyTotal: (dateStr: string) => Promise<number>;
       deleteRecord: (id: string) => Promise<void>;
     };
   }
@@ -61,6 +67,11 @@ export async function getAllCategories(): Promise<Category[]> {
     console.error('[frontend] getAllCategories 出错，使用兜底分类:', e);
     return FALLBACK_CATEGORIES;
   }
+}
+
+export async function addCategory(name: string, icon?: string, parentId?: number): Promise<{ id: number; level: number }> {
+  if (!api) throw new Error('运行环境异常');
+  return await api.addCategory(name, icon, parentId);
 }
 
 export async function addRecord(id: string, amount: number, categoryId: number, note: string, recordDate: string): Promise<void> {
@@ -88,12 +99,62 @@ export async function getMonthlyStats(year: number, month: number): Promise<Mont
   }
 }
 
+export async function getYearlyStats(year: number): Promise<MonthlyStat[]> {
+  if (!api) return [];
+  try {
+    return await api.getYearlyStats(year);
+  } catch (e) {
+    console.error('[frontend] getYearlyStats 出错:', e);
+    return [];
+  }
+}
+
+export async function getDailyStats(dateStr: string): Promise<MonthlyStat[]> {
+  if (!api) return [];
+  try {
+    return await api.getDailyStats(dateStr);
+  } catch (e) {
+    console.error('[frontend] getDailyStats 出错:', e);
+    return [];
+  }
+}
+
+export async function getTrendByPeriod(periodType: 'year' | 'month' | 'day', value: string | number): Promise<TrendItem[]> {
+  if (!api) return [];
+  try {
+    return await api.getTrendByPeriod(periodType, value);
+  } catch (e) {
+    console.error('[frontend] getTrendByPeriod 出错:', e);
+    return [];
+  }
+}
+
 export async function getMonthlyTotal(year: number, month: number): Promise<number> {
   if (!api) return 0;
   try {
     return await api.getMonthlyTotal(year, month);
   } catch (e) {
     console.error('[frontend] getMonthlyTotal 出错:', e);
+    return 0;
+  }
+}
+
+export async function getYearlyTotal(year: number): Promise<number> {
+  if (!api) return 0;
+  try {
+    return await api.getYearlyTotal(year);
+  } catch (e) {
+    console.error('[frontend] getYearlyTotal 出错:', e);
+    return 0;
+  }
+}
+
+export async function getDailyTotal(dateStr: string): Promise<number> {
+  if (!api) return 0;
+  try {
+    return await api.getDailyTotal(dateStr);
+  } catch (e) {
+    console.error('[frontend] getDailyTotal 出错:', e);
     return 0;
   }
 }

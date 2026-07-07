@@ -1,6 +1,20 @@
 const { app, BrowserWindow, ipcMain, Menu } = require('electron');
 const path = require('path');
-const { initDatabase, getAllCategories, addRecord, getRecords, getMonthlyStats, getMonthlyTotal, deleteRecord } = require('./database');
+const {
+  initDatabase,
+  getAllCategories,
+  addCategory,
+  addRecord,
+  getRecords,
+  getMonthlyStats,
+  getYearlyStats,
+  getDailyStats,
+  getTrendByPeriod,
+  getMonthlyTotal,
+  getYearlyTotal,
+  getDailyTotal,
+  deleteRecord,
+} = require('./database');
 
 let mainWindow;
 
@@ -130,6 +144,10 @@ function registerIpcHandlers() {
     return getAllCategories();
   });
 
+  ipcMain.handle('db:addCategory', (_event, name, icon, parentId) => {
+    return addCategory(name, icon, parentId);
+  });
+
   ipcMain.handle('db:addRecord', (_event, id, amount, categoryId, note, recordDate) => {
     addRecord(id, amount, categoryId, note, recordDate);
     return true;
@@ -143,8 +161,28 @@ function registerIpcHandlers() {
     return getMonthlyStats(year, month);
   });
 
+  ipcMain.handle('db:getYearlyStats', (_event, year) => {
+    return getYearlyStats(year);
+  });
+
+  ipcMain.handle('db:getDailyStats', (_event, dateStr) => {
+    return getDailyStats(dateStr);
+  });
+
+  ipcMain.handle('db:getTrendByPeriod', (_event, periodType, value) => {
+    return getTrendByPeriod(periodType, value);
+  });
+
   ipcMain.handle('db:getMonthlyTotal', (_event, year, month) => {
     return getMonthlyTotal(year, month);
+  });
+
+  ipcMain.handle('db:getYearlyTotal', (_event, year) => {
+    return getYearlyTotal(year);
+  });
+
+  ipcMain.handle('db:getDailyTotal', (_event, dateStr) => {
+    return getDailyTotal(dateStr);
   });
 
   ipcMain.handle('db:deleteRecord', (_event, id) => {

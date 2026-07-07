@@ -119,9 +119,14 @@ function createTables() {
       parent_id INTEGER,
       level INTEGER NOT NULL DEFAULT 1,
       sort_order INTEGER DEFAULT 0,
+      is_custom INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY (parent_id) REFERENCES categories(id)
     )
   `);
+
+  try {
+    db.run('ALTER TABLE categories ADD COLUMN is_custom INTEGER NOT NULL DEFAULT 0');
+  } catch (_) { /* 旧库已有该字段则忽略 */ }
 
   db.run(`
     CREATE TABLE IF NOT EXISTS records (
@@ -152,7 +157,9 @@ function rebuildCategoriesPreserveRecords() {
 
 function isCategoriesStructureValid() {
   try {
-    const mainResult = db.exec('SELECT id, name FROM categories WHERE level = 1 ORDER BY sort_order');
+    const mainResult = db.exec(
+      `SELECT id, name FROM categories WHERE level = 1 AND is_custom = 0 ORDER BY sort_order`
+    );
     if (!mainResult[0] || mainResult[0].values.length !== CATEGORIES.length) {
       return false;
     }
@@ -161,7 +168,7 @@ function isCategoriesStructureValid() {
       const expected = CATEGORIES[i];
       if (pname !== expected.name) return false;
       const subResult = db.exec(
-        `SELECT id FROM categories WHERE parent_id = ${pid} ORDER BY sort_order`
+        `SELECT id FROM categories WHERE parent_id = ${pid} AND is_custom = 0 ORDER BY sort_order`
       );
       const subCount = subResult[0]?.values.length || 0;
       if (subCount !== expected.children.length) return false;
@@ -174,7 +181,7 @@ function isCategoriesStructureValid() {
 
 function doInsertCategories() {
   const stmt = db.prepare(
-    'INSERT INTO categories (name, icon, parent_id, level, sort_order) VALUES (?, ?, ?, ?, ?)'
+    'INSERT INTO categories (name, icon, parent_id, level, sort_order, is_custom) VALUES (?, ?, ?, ?, ?, 0)'
   );
 
   CATEGORIES.forEach((cat, index) => {
@@ -190,6 +197,30 @@ function doInsertCategories() {
 
   stmt.free();
   saveDatabase();
+}
+
+function addCategory(name, icon, parentId) {
+  if (!db) throw new Error('数据库未初始化');
+  if (!name || !String(name).trim()) throw new Error('分类名称不能为空');
+
+  const level = parentId ? 2 : 1;
+  const iconVal = icon || (level === 1 ? '📌' : null);
+
+  const maxSortRes = db.exec(
+    `SELECT COALESCE(MAX(sort_order), -1) FROM categories WHERE ${parentId ? `parent_id = ${Number(parentId)}` : 'parent_id IS NULL'}`
+  );
+  const nextSort = (maxSortRes?.[0]?.values?.[0]?.[0] ?? -1) + 1;
+
+  const stmt = db.prepare(
+    'INSERT INTO categories (name, icon, parent_id, level, sort_order, is_custom) VALUES (?, ?, ?, ?, ?, 1)'
+  );
+  stmt.run([String(name).trim(), iconVal, parentId ? Number(parentId) : null, level, nextSort]);
+  stmt.free();
+  saveDatabase();
+
+  const lastRes = db.exec('SELECT last_insert_rowid() AS lid');
+  const newId = lastRes?.[0]?.values?.[0]?.[0];
+  return { id: newId, level };
 }
 
 function initCategories() {
@@ -221,8 +252,9 @@ function initCategories() {
   }
 
   if (needRebuild) {
-    console.log('分类结构不完整，重建分类表（保留原有记录）...');
+    console.log('内置分类结构不完整，重建内置分类（保留用户自定义分类和记录）...');
     let oldRecords = [];
+    let customCats = [];
     try {
       const recResult = db.exec(`
         SELECT r.amount, r.note, r.record_date, r.created_at,
@@ -238,13 +270,52 @@ function initCategories() {
     }
 
     try {
+      const cc = db.exec(`
+        SELECT id, name, icon, parent_id, level, sort_order FROM categories WHERE is_custom = 1 ORDER BY id
+      `);
+      customCats = cc?.[0]?.values || [];
+    } catch (e) {
+      console.warn('备份用户自定义分类失败:', e.message);
+      customCats = [];
+    }
+
+    try {
       db.run('DROP TABLE IF EXISTS records');
       db.run('DROP TABLE IF EXISTS categories');
       createTables();
       doInsertCategories();
     } catch (e) {
-      console.error('重建分类表失败:', e.message);
+      console.error('重建内置分类表失败:', e.message);
       return;
+    }
+
+    if (customCats.length > 0) {
+      try {
+        const idMap = {};
+        const insCat = db.prepare(
+          'INSERT INTO categories (name, icon, parent_id, level, sort_order, is_custom) VALUES (?, ?, ?, ?, ?, 1)'
+        );
+        const tmpCustomLevel1 = customCats.filter(r => r[4] === 1);
+        const tmpCustomLevel2 = customCats.filter(r => r[4] === 2);
+        for (const r of tmpCustomLevel1) {
+          const [oldId, name, icon, , level, so] = r;
+          insCat.run([name, icon || '📌', null, level, so]);
+          const lr = db.exec('SELECT last_insert_rowid() AS lid');
+          const newId = lr?.[0]?.values?.[0]?.[0];
+          if (oldId != null) idMap[oldId] = newId;
+        }
+        for (const r of tmpCustomLevel2) {
+          const [oldId, name, icon, oldPid, level, so] = r;
+          insCat.run([name, icon, idMap[oldPid] ? Number(idMap[oldPid]) : null, level, so]);
+          const lr = db.exec('SELECT last_insert_rowid() AS lid');
+          const newId = lr?.[0]?.values?.[0]?.[0];
+          if (oldId != null) idMap[oldId] = newId;
+        }
+        insCat.free();
+        saveDatabase();
+      } catch (e) {
+        console.error('恢复用户自定义分类失败:', e.message);
+      }
     }
 
     if (oldRecords.length > 0) {
@@ -444,12 +515,109 @@ function getMonthlyStats(year, month) {
   }));
 }
 
+function getYearlyStats(year) {
+  const prefix = `${year}-`;
+  const result = db.exec(`
+    SELECT c1.name, c1.icon, SUM(r.amount) as total
+    FROM records r
+    JOIN categories c2 ON r.category_id = c2.id
+    JOIN categories c1 ON c2.parent_id = c1.id
+    WHERE r.record_date LIKE '${prefix}%'
+    GROUP BY c1.id
+    ORDER BY total DESC
+  `);
+
+  return (result[0]?.values || []).map(row => ({
+    category: row[0],
+    icon: row[1],
+    total: row[2],
+  }));
+}
+
+function getDailyStats(dateStr) {
+  const result = db.exec(`
+    SELECT c1.name, c1.icon, SUM(r.amount) as total
+    FROM records r
+    JOIN categories c2 ON r.category_id = c2.id
+    JOIN categories c1 ON c2.parent_id = c1.id
+    WHERE r.record_date = '${String(dateStr).slice(0, 10)}'
+    GROUP BY c1.id
+    ORDER BY total DESC
+  `);
+
+  return (result[0]?.values || []).map(row => ({
+    category: row[0],
+    icon: row[1],
+    total: row[2],
+  }));
+}
+
 function getMonthlyTotal(year, month) {
   const prefix = `${year}-${String(month).padStart(2, '0')}`;
   const result = db.exec(`
     SELECT COALESCE(SUM(amount), 0) FROM records WHERE record_date LIKE '${prefix}%'
   `);
   return result[0]?.values[0]?.[0] || 0;
+}
+
+function getYearlyTotal(year) {
+  const prefix = `${year}-`;
+  const result = db.exec(`
+    SELECT COALESCE(SUM(amount), 0) FROM records WHERE record_date LIKE '${prefix}%'
+  `);
+  return result[0]?.values[0]?.[0] || 0;
+}
+
+function getDailyTotal(dateStr) {
+  const result = db.exec(`
+    SELECT COALESCE(SUM(amount), 0) FROM records WHERE record_date = '${String(dateStr).slice(0, 10)}'
+  `);
+  return result[0]?.values[0]?.[0] || 0;
+}
+
+function getTrendByPeriod(periodType, value) {
+  try {
+    if (periodType === 'year') {
+      const year = Number(value);
+      const months = Array.from({ length: 12 }, (_, i) => i + 1);
+      return months.map(m => {
+        const prefix = `${year}-${String(m).padStart(2, '0')}`;
+        const r = db.exec(`SELECT COALESCE(SUM(amount),0) FROM records WHERE record_date LIKE '${prefix}%'`);
+        return { label: `${m}月`, total: r?.[0]?.values?.[0]?.[0] || 0 };
+      });
+    }
+    if (periodType === 'month') {
+      const [y, m] = String(value).split('-').map(Number);
+      const prefix = `${y}-${String(m).padStart(2, '0')}-`;
+      const daysInMonth = new Date(y, m, 0).getDate();
+      const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+      return days.map(d => {
+        const ds = `${prefix}${String(d).padStart(2, '0')}`;
+        const r = db.exec(`SELECT COALESCE(SUM(amount),0) FROM records WHERE record_date = '${ds}'`);
+        return { label: `${d}日`, total: r?.[0]?.values?.[0]?.[0] || 0 };
+      });
+    }
+    if (periodType === 'day') {
+      const dateStr = String(value).slice(0, 10);
+      const result = db.exec(`
+        SELECT r.record_date, c1.name, SUM(r.amount) AS total
+        FROM records r
+        JOIN categories c2 ON r.category_id = c2.id
+        JOIN categories c1 ON c2.parent_id = c1.id
+        WHERE r.record_date = '${dateStr}'
+        GROUP BY r.record_date, c1.id
+        ORDER BY total DESC
+      `);
+      return (result?.[0]?.values || []).map(row => ({
+        label: row[1],
+        total: row[2],
+      }));
+    }
+    return [];
+  } catch (e) {
+    console.error('getTrendByPeriod error:', e.message);
+    return [];
+  }
 }
 
 function deleteRecord(id) {
@@ -466,9 +634,15 @@ module.exports = {
   initDatabase,
   getDatabase,
   getAllCategories,
+  addCategory,
   addRecord,
   getRecords,
   getMonthlyStats,
+  getYearlyStats,
+  getDailyStats,
+  getTrendByPeriod,
   getMonthlyTotal,
+  getYearlyTotal,
+  getDailyTotal,
   deleteRecord,
 };
