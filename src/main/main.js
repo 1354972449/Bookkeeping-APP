@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, Menu } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const {
   initDatabase,
   getAllCategories,
@@ -15,6 +16,11 @@ const {
   getDailyTotal,
   deleteRecord,
 } = require('./database');
+
+const APP_USER_MODEL_ID = 'com.heima.zhangji.1.0.0';
+if (process.platform === 'win32') {
+  app.setAppUserModelId(APP_USER_MODEL_ID);
+}
 
 let mainWindow;
 
@@ -104,7 +110,39 @@ function setupChineseMenu() {
   Menu.setApplicationMenu(menu);
 }
 
+function pickFirstExists(paths) {
+  for (const p of paths) {
+    try { if (fs.existsSync(p)) return p; } catch (_) {}
+  }
+  return paths[0];
+}
+
+function getIconPath() {
+  const isDev = process.env.NODE_ENV === 'development';
+  const publicDir = isDev ? path.join(__dirname, '../../public')
+                          : path.join(process.resourcesPath, 'app.asar.unpacked/public');
+  const appAsarPublic = path.join(__dirname, '../../public');
+
+  const icoCandidates = [
+    path.join(publicDir, 'icon.ico'),
+    path.join(appAsarPublic, 'icon.ico'),
+    path.join(process.resourcesPath, 'public/icon.ico'),
+  ];
+  const pngCandidates = [
+    path.join(publicDir, 'icon.png'),
+    path.join(appAsarPublic, 'icon.png'),
+    path.join(process.resourcesPath, 'public/icon.png'),
+  ];
+
+  if (process.platform === 'win32') {
+    const ico = pickFirstExists(icoCandidates);
+    if (ico && fs.existsSync(ico)) return ico;
+  }
+  return pickFirstExists(pngCandidates);
+}
+
 function createWindow() {
+  const iconPath = getIconPath();
   mainWindow = new BrowserWindow({
     width: 1080,
     height: 760,
@@ -116,7 +154,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-    icon: path.join(__dirname, '../../public/icon.png'),
+    icon: iconPath,
     backgroundColor: '#f5f7fa',
     show: false,
   });

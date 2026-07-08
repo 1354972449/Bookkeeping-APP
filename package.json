@@ -2,6 +2,7 @@
   "name": "hei-ma-zhang-ji",
   "version": "1.0.0",
   "description": "黑马记账 - 跨平台个人消费记账应用",
+  "author": "黑马记账团队",
   "main": "src/main/main.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:react\" \"npm run dev:electron\"",
@@ -40,7 +41,8 @@
           "arch": ["x64"]
         }
       ],
-      "icon": "public/icon.png"
+      "icon": "public/icon.png",
+      "legalTrademarks": "黑马记账"
     },
     "mac": {
       "target": "dmg",
@@ -52,7 +54,12 @@
       "language": "2052",
       "shortcutName": "黑马记账",
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "menuCategory": true,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "displayLanguageSelector": false,
+      "warningsAsErrors": false
     }
   },
   "dependencies": {

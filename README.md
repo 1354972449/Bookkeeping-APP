@@ -69,7 +69,30 @@ cd 黑马记账App
 npm install
 ```
 
-### 2. 开发模式运行（推荐调试用）
+### 2. 三种方式 · 直接启动 APP 🚀
+
+#### ✅ 方式一：免安装绿色版（最快、最省事）
+**无需 Node 环境、无需编译、无需安装！** 直接双击即可运行：
+
+```
+release/win-unpacked/黑马记账.exe
+```
+
+> 💡 方便分享：把整个 `win-unpacked` 文件夹压缩发给朋友，解压后双击 exe 就能用。
+
+#### ✅ 方式二：标准安装包（推荐分发）
+运行安装包，按提示完成安装：
+
+```
+release/黑马记账 Setup 1.0.0.exe
+```
+
+安装完成后：
+- 桌面会出现「黑马记账」快捷方式（带自定义紫蓝钱包图标）
+- 开始菜单 → 「黑马记账」文件夹 → 启动
+- Windows 任务栏会正确显示自定义 APP 图标（已配置 AppUserModelID）
+
+#### ✅ 方式三：开发模式运行（改代码调试时用）
 
 ```bash
 npm run dev
@@ -92,7 +115,7 @@ npm run build:win
 
 | 文件/目录 | 说明 |
 |---|---|
-| `黑马记账 Setup 1.0.0.exe` | **推荐**：NSIS 图形化安装向导，支持自定义安装目录，自动创建桌面/开始菜单快捷方式 |
+| `黑马记账 Setup 1.0.0.exe` | **推荐**：NSIS 图形化安装向导，支持自定义安装目录，自动创建桌面/开始菜单快捷方式，图标为自定义紫蓝钱包设计 |
 | `win-unpacked/黑马记账.exe` | 绿色免安装版，直接双击运行，不用安装 |
 
 ### 4. 仅构建前端代码（不打包 Electron）
@@ -146,7 +169,8 @@ npm run react:build
 ```
 黑马记账App/
 ├── public/                    # 静态资源
-│   ├── icon.png              # APP 图标（桌面快捷方式 & 安装包图标）
+│   ├── icon.png              # APP 图标 · 512x512 PNG（紫蓝渐变钱包 + 金色¥符号，electron-builder 自动转换为 ICO）
+│   ├── icon.ico              # APP 图标 · Windows ICO 多尺寸容器（直接使用，适用于任务栏/快捷方式）
 │   └── index.html            # Webpack HTML 入口模板
 ├── src/
 │   ├── main/                 # Electron 主进程
@@ -243,13 +267,32 @@ C:\Users\你的用户名\AppData\Roaming\hei-ma-zhang-ji\data\heimazhangji.db
 
 ### 5. 安装包 / 打包时报图标错误
 
-确认 `public/icon.png` 文件存在且为 PNG 格式（不能改后缀名）。
+**常见错误：** `Icon must be at least 256x256 pixels` 或 `icon is not a valid PNG`
 
-### 6. 打包后打开提示数据库 / WASM 加载失败
+**解决方案：**
+- 确认 `public/icon.png` 文件存在，并且**文件头是真正的 PNG 格式**（`89 50 4E 47`，不能直接改后缀名伪装）
+- 推荐尺寸：**512x512 像素**，electron-builder 会自动生成 256/128/64/48/32/16 多尺寸 ICO
+- 如果图标生成有问题，可以使用 C# / System.Drawing 自己绘制 PNG，确保格式正确
+
+### 6. 安装后桌面快捷方式 / 任务栏图标不显示自定义图标
+
+**典型症状：** 运行 `黑马记账.exe` 后，任务栏显示的是 Electron 默认蓝色图标，而非自定义的紫蓝钱包图标。
+
+**根因：** Windows 任务栏的图标缓存问题，或缺少 AppUserModelID 绑定。
+
+**解决方案：**
+1. **代码已内置修复**（v1.1.1 起）：主进程启动时已调用 `app.setAppUserModelId('com.heima.zhangji.1.0.0')`，与 package.json 的 `appId` 对应
+2. 手动刷新 Windows 图标缓存：
+   - 按 `Win + R` → 输入 `ie4uinit.exe -show` 回车（立即刷新图标缓存）
+   - 或右键快捷方式 → 属性 → 更换图标 → 重新确认
+3. 若之前安装过旧版本，请先**卸载旧版**再安装新版，避免缓存复用
+4. 也可直接使用 `release/win-unpacked/黑马记账.exe` 绿色版，图标由 exe 资源直接加载，无需等待系统缓存
+
+### 7. 打包后打开提示数据库 / WASM 加载失败
 
 已在 `package.json` 的 `build.asarUnpack` 和 `extraResources` 中配置了 `sql-wasm.wasm` 的释放路径，请使用 `npm run build:win` 重新打包；开发模式下直接读取 `node_modules/sql.js/dist/sql-wasm.wasm`。
 
-### 7. 贪吃蛇最高分会清除吗？
+### 8. 贪吃蛇最高分会清除吗？
 
 最高分通过 `localStorage` 保存在浏览器内核的本地存储中，只要不卸载 APP 或手动清空缓存，最高分将一直保留。
 
@@ -267,17 +310,25 @@ C:\Users\你的用户名\AppData\Roaming\hei-ma-zhang-ji\data\heimazhangji.db
   "asarUnpack": ["dist/sql-wasm.wasm"],
   "win": {
     "target": [{ "target": "nsis", "arch": ["x64"] }],
-    "icon": "public/icon.png"
+    "icon": "public/icon.png",
+    "legalTrademarks": "黑马记账"
   },
   "nsis": {
     "language": "2052",          // 2052 = 简体中文
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
     "shortcutName": "黑马记账",
-    "allowToChangeInstallationDirectory": true
+    "allowToChangeInstallationDirectory": true,
+    "oneClick": false,
+    "menuCategory": true
   }
 }
 ```
+
+> ⚠️ **Windows 图标正确显示的关键配置：**
+> 1. `build.win.icon` 必须指向**真实 512x512+ PNG**（不能改后缀名，文件头必须 `89 50 4E 47`）
+> 2. 主进程入口必须设置 `app.setAppUserModelId('com.heima.zhangji.1.0.0')`，值与 `appId` 对应
+> 3. 图标路径查找需同时兼容 asar 打包和开发模式（已在 `getIconPath()` 函数中处理）
 
 ---
 
@@ -297,6 +348,30 @@ C:\Users\你的用户名\AppData\Roaming\hei-ma-zhang-ji\data\heimazhangji.db
 ---
 
 ## 📝 更新日志
+
+### v1.1.1（2026-07-08）🎨 APP 图标全新升级 & Windows 图标显示修复
+
+**视觉升级：**
+- **🎉 全新 APP 图标设计**：放弃外部图片 API（返回的 JPEG 被错误伪装成 PNG，导致打包失败），改用 **C# / System.Drawing 代码直接绘制 512x512 真 PNG 图标**，设计风格为：
+  - 紫蓝渐变色圆角方形背景（#7C3AED → #6366F1 → #3B82F6）
+  - 白色钱包主体 + 紫色分层钱包袋 + 金色钱包卡扣
+  - 金色 ¥ 人民币符号（带描边）
+  - 左上角高光圆形效果
+- **新增 `public/icon.ico`**：多尺寸 ICO 容器文件，供 Windows 直接加载
+
+**Windows 图标显示修复（关键修复）：**
+- **✅ 修复任务栏图标不显示**：主进程入口添加 `app.setAppUserModelId('com.heima.zhangji.1.0.0')`，与 package.json 的 `appId` 绑定，解决 Electron 应用 Windows 任务栏默认图标的典型问题
+- **✅ 智能图标路径查找**：重写 `getIconPath()` 函数，同时兼容：
+  - Windows 优先 ICO、回退 PNG
+  - 开发模式 `public/` 目录
+  - 打包后 `asar.unpacked/public/` 目录
+  - 多候选路径自动选择第一个存在的文件
+- **✅ electron-builder 配置完善**：添加 `author`、`legalTrademarks`、`nsis.oneClick=false`、`nsis.menuCategory=true` 等打包配置
+
+**文档更新：**
+- 🚀 新增「三种方式 · 直接启动 APP」（免安装绿色版 / 标准安装包 / 开发模式）
+- 💡 新增图标FAQ：如何排查 PNG 格式错误、任务栏图标不显示的 4 种解决方案
+- 🛠️ 打包配置章节新增 Windows 图标正确显示的 3 条关键注意事项
 
 ### v1.1.0（2026-07-08）✨ 本次重磅更新
 - **🎯 功能 1 · 自定义分类**：用户可在分类选择界面随时新增自定义主分类（支持 26+ 款图标自选）和子分类，重建数据库时自动保留自定义分类
